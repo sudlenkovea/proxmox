@@ -29,9 +29,9 @@ data_drive_discard=on # VM data drive discard option
 The `proxmox-vms-automation-vars.yml` file contains the following variables:
 
 ```yaml
-api_host: '172.16.0.1'
-api_user: 'root@pam'
-api_token_id: 'deploy'
+api_host: '172.16.0.1' # Proxmox NODE ip address
+api_user: 'root@pam' # Proxmox API user name
+api_token_id: 'deploy' # Proxmox API token name
 api_token_secret: 'xxxxxxxxxxx-proxmoxtoken-xxxxxxxxxxx' # Proxmox api access token, see https://www.youtube.com/watch?v=zMWqrdH8S1w for the details
 vm_template_name: 'ubuntu-22.04-server-cloudimg-template' # VM template name must be located on a common NFS/iSCSI/etc. volume for all proxmox nodes (if more than one node is in the cluster)
 vm_name: '{{ inventory_hostname }}' # VM name
