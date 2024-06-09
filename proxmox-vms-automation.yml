@@ -1,0 +1,19 @@
+---
+- hosts: all
+  connection: local
+  gather_facts: no
+  become: no
+  serial: 1
+  roles:
+    - prox-vm-spinup-part1
+- hosts: all
+  connection: local
+  gather_facts: no
+  become: no
+  roles:
+    - prox-vm-spinup-part2
+- hosts: all
+  become: yes
+  become_user: root
+  roles:
+    - prox-vm-spinup-part3

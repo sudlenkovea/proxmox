@@ -1,0 +1,72 @@
+---
+- name: Include needed vars file
+  include_vars:
+    file: "{{ role_path }}/../../vars/proxmox-vms-automation-vars.yml"
+
+- name: Retrieve information about TEMPLATE by name
+  community.general.proxmox_vm_info:
+    api_host: "{{ api_host }}"
+    api_user: "{{ api_user }}"
+    api_token_id: "{{ api_token_id }}"
+    api_token_secret: "{{ api_token_secret }}"
+    validate_certs: false
+    name: "{{ vm_template_name }}"
+  register: proxmox_template_info
+
+- name: Retrieve information about specific VM by name
+  community.general.proxmox_vm_info:
+    api_host: "{{ api_host }}"
+    api_user: "{{ api_user }}"
+    api_token_id: "{{ api_token_id }}"
+    api_token_secret: "{{ api_token_secret }}"
+    validate_certs: false
+    name: "{{ vm_name }}"
+  register: proxmox_vm_info
+
+- name: Retrieve information about specific VM by name (unconfigured part)
+  community.general.proxmox_vm_info:
+    api_host: "{{ api_host }}"
+    api_user: "{{ api_user }}"
+    api_token_id: "{{ api_token_id }}"
+    api_token_secret: "{{ api_token_secret }}"
+    validate_certs: false
+    name: "{{ vm_name }}-unconfigured"
+  register: proxmox_vm_unconfig_info
+
+- name: Clone, configure and execute VM
+  block:
+    - name: Ensure template placed on target node
+      community.general.proxmox_kvm:
+        api_host: "{{ api_host }}"
+        api_user: "{{ api_user }}"
+        api_token_id: "{{ api_token_id }}"
+        api_token_secret: "{{ api_token_secret }}"
+        validate_certs: false
+        node: "{{ vm_host }}"
+        name: "{{ vm_template_name }}"
+        migrate: true
+        timeout: 600
+    - name: Clone template to VM
+      community.general.proxmox_kvm:
+        api_host: "{{ api_host }}"
+        api_user: "{{ api_user }}"
+        api_token_id: "{{ api_token_id }}"
+        api_token_secret: "{{ api_token_secret }}"
+        validate_certs: false
+        node: "{{ vm_host }}"
+        name: "{{ vm_name }}-unconfigured"
+        clone: "{{ vm_template_name }}"
+        storage: "{{ vm_storage }}"
+        full: true
+        agent: enabled=1
+        timeout: 600
+    - name: Wait one more minute to complete VM clone process
+      ansible.builtin.wait_for:
+        timeout: 60
+      delegate_to: localhost
+      any_errors_fatal: true
+  when:
+    - proxmox_vm_info.proxmox_vms | length == 0 #VM is not in unconfigured mode 
+    - proxmox_vm_unconfig_info.proxmox_vms | length == 0  #VM not created
+    - proxmox_template_info | length > 0 #Template is found.
+  ignore_errors: false

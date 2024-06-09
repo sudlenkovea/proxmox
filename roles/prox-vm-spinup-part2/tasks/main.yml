@@ -1,0 +1,113 @@
+---
+- name: Include needed vars file
+  include_vars:
+    file: "{{ role_path }}/../../vars/proxmox-vms-automation-vars.yml"
+
+- name: Retrieve information about specific VM by name
+  community.general.proxmox_vm_info:
+    api_host: "{{ api_host }}"
+    api_user: "{{ api_user }}"
+    api_token_id: "{{ api_token_id }}"
+    api_token_secret: "{{ api_token_secret }}"
+    validate_certs: false
+    name: "{{ vm_name }}"
+  register: proxmox_vm_info
+
+- name: Retrieve information about specific VM by name (unconfigured part)
+  community.general.proxmox_vm_info:
+    api_host: "{{ api_host }}"
+    api_user: "{{ api_user }}"
+    api_token_id: "{{ api_token_id }}"
+    api_token_secret: "{{ api_token_secret }}"
+    validate_certs: false
+    name: "{{ vm_name }}-unconfigured"
+  register: proxmox_vm_unconfig_info
+
+- name: Clone, configure and execute VM
+  block:
+    - name: Grow root disk in VM
+      community.general.proxmox_disk:
+        api_host: "{{ api_host }}"
+        api_user: "{{ api_user }}"
+        api_token_id: "{{ api_token_id }}"
+        api_token_secret: "{{ api_token_secret }}"
+        validate_certs: false
+        vmid: "{{ proxmox_vm_unconfig_info.proxmox_vms[0]['vmid'] }}"
+        disk: scsi0
+        size: +50G
+        state: resized
+        timeout: 600
+    - name: Create new disk in VM
+      community.general.proxmox_disk:
+        api_host: "{{ api_host }}"
+        api_user: "{{ api_user }}"
+        api_token_id: "{{ api_token_id }}"
+        api_token_secret: "{{ api_token_secret }}"
+        validate_certs: false
+        vmid: "{{ proxmox_vm_unconfig_info.proxmox_vms[0]['vmid'] }}"
+        disk: virtio0
+        backup: false
+        cache: none
+        storage: "{{ vm_storage }}"
+        size: "{{ vm_data_drive_size_gb }}"
+        discard: "{{ vm_data_drive_discard }}"
+        state: present
+      when: skip_data_drive is not defined or skip_data_drive | bool == false
+    - name: Update NIC targeting the vm
+      community.general.proxmox_nic:
+        api_host: "{{ api_host }}"
+        api_user: "{{ api_user }}"
+        api_token_id: "{{ api_token_id }}"
+        api_token_secret: "{{ api_token_secret }}"
+        validate_certs: false
+        vmid: "{{ proxmox_vm_unconfig_info.proxmox_vms[0]['vmid'] }}"
+        interface: net0
+        bridge: "{{ bridge_name }}"
+    - name: Update VM configuration
+      community.general.proxmox_kvm:
+        api_host: "{{ api_host }}"
+        api_user: "{{ api_user }}"
+        api_token_id: "{{ api_token_id }}"
+        api_token_secret: "{{ api_token_secret }}"
+        validate_certs: false
+        node: "{{ vm_host }}"
+        name: "{{ vm_name }}"
+        vmid: "{{ proxmox_vm_unconfig_info.proxmox_vms[0]['vmid'] }}"
+        cores: "{{ vm_cpu_cores }}"
+        memory: "{{ vm_memory_size_mb }}"
+        nameservers: "{{ nameservers }}"
+        ciuser: "{{ vm_user }}"
+        cipassword: "{{ vm_user_password }}"
+        sshkeys: "{{ vm_user_ssh_key }}"
+        ipconfig:
+          ipconfig0: "ip={{ vm_ip }}/{{ vm_netmask }},gw={{ vm_gw }}"
+        searchdomains: "{{ vm_dnsdomain }}"
+        update: true
+    - name: Start VM
+      community.general.proxmox_kvm:
+        api_host: "{{ api_host }}"
+        api_user: "{{ api_user }}"
+        api_token_id: "{{ api_token_id }}"
+        api_token_secret: "{{ api_token_secret }}"
+        validate_certs: false
+        node: "{{ vm_host }}"
+        vmid: "{{ proxmox_vm_unconfig_info.proxmox_vms[0]['vmid'] }}"
+        state: started
+    - name: Wait for the ssh
+      ansible.builtin.wait_for:
+        port: 22
+        host: "{{ vm_ip }}"
+        search_regex: OpenSSH
+        delay: 10
+        timeout: 120
+      delegate_to: localhost
+      any_errors_fatal: true
+    - name: Wait 3 more minutes to complete spin up process
+      ansible.builtin.wait_for:
+        timeout: 180
+      delegate_to: localhost
+      any_errors_fatal: true
+  when:
+    - proxmox_vm_info.proxmox_vms | length == 0 #VM is not configured yeat 
+    - proxmox_vm_unconfig_info.proxmox_vms | length > 0  #VM already created
+  ignore_errors: false

@@ -1,0 +1,74 @@
+---
+- name: Include needed vars file
+  include_vars:
+    file: "{{ role_path }}/../../vars/proxmox-vms-automation-vars.yml"
+
+- name: Include needed vars file
+  include_vars:
+    file: "{{ role_path }}/../../group_vars/prox-clone.yml"
+
+- name: Retrieve information about specific VM by name
+  community.general.proxmox_vm_info:
+    api_host: "{{ api_host }}"
+    api_user: "{{ api_user }}"
+    api_token_id: "{{ api_token_id }}"
+    api_token_secret: "{{ api_token_secret }}"
+    validate_certs: false
+    name: "{{ vm_name }}"
+  delegate_to: localhost
+  become: false
+  register: proxmox_vm_info
+
+- name: Retrieve information about specific VM by name (unconfigured part)
+  community.general.proxmox_vm_info:
+    api_host: "{{ api_host }}"
+    api_user: "{{ api_user }}"
+    api_token_id: "{{ api_token_id }}"
+    api_token_secret: "{{ api_token_secret }}"
+    validate_certs: false
+    name: "{{ vm_name }}-unconfigured"
+  delegate_to: localhost
+  become: false
+  register: proxmox_vm_unconfig_info
+
+- name: Complete VM configuration
+  block:
+    - name: Wait for cloud init to finish
+      community.general.cloud_init_data_facts:
+        filter: status
+      register: cloud_init_result
+      until: "cloud_init_result.cloud_init_data_facts.status.v1.stage is defined and not cloud_init_result.cloud_init_data_facts.status.v1.stage"
+      retries: 60
+      delay: 10
+
+    - name: Restart qemu-guest-agent.service
+      systemd:
+        name: qemu-guest-agent.service
+        state: restarted
+
+    - name: Complete Drive configuration
+      block:
+        - name: Create a filesystem on /dev/vda
+          community.general.filesystem:
+            fstype: "{{ vm_data_drive_fs }}"
+            dev: /dev/vda
+        - name: Get UUID of newly created FS
+          ansible.builtin.command: lsblk /dev/vda -no UUID
+          register: uuid
+        - name: Ensure data drive mount point exist
+          ansible.builtin.file:
+            path: "{{ vm_data_drive_mount_path }}"
+            state: directory
+            mode: '0755'
+        - name: Mount new volume and create fstab entries
+          ansible.posix.mount:
+            path: "{{ vm_data_drive_mount_path }}"
+            src: UUID={{ uuid.stdout }}
+            state: mounted
+            fstype: "{{ vm_data_drive_fs }}"
+            opts: defaults,nofail
+      when: skip_data_drive is not defined or skip_data_drive | bool == false
+  when:
+    - proxmox_vm_info.proxmox_vms | length > 0 #VM is not configured yeat 
+    - proxmox_vm_unconfig_info.proxmox_vms | length == 0  #VM already created
+  ignore_errors: false
