@@ -11,7 +11,7 @@ node-example-01 ansible_host=10.0.100.1 vm_host=n1 storage=N1-NVME cpu_cores=24 
 ```
 
 ^^^^^ the explanation
-```
+```yaml
 node-example-01 # VM name
 ansible_host=10.0.100.1 # VM FUTURE ip
 vm_host=n1 # The name of the Proxmox NODE where the VM will be located
